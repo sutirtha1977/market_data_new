@@ -13,7 +13,8 @@ def export_to_csv(df: pd.DataFrame, name: str) -> str:
         filename = f"Scanner_{name}_{ts}.csv"
         filepath = os.path.join(SCANNER_FOLDER, filename)
         df.to_csv(filepath, index=False)
-        log(f"✔ Scanner saved at {filepath}")
+        # log(f"✔ Scanner saved at {filepath}")
+        print(f"✔ Scanner saved at {filepath}")
         return filepath
     except Exception as e:
         log(f"❌ CSV export failed | {e}")

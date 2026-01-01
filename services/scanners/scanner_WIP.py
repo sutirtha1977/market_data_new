@@ -9,10 +9,11 @@ def scanner_WIP() -> pd.DataFrame:
         df = get_base_data()
         df_filtered = df[
             (df['adj_close'] >= 100) &
-            (df['rsi_3'] / df['rsi_9'] >= 1.15) &
-            (df['rsi_9'] / df['ema_rsi_9_3'] >= 1.05) &
-            (df['ema_rsi_9_3'] / df['wma_rsi_9_21'] >= 1) &
-            (df['rsi_3'] < 60) &
+            (df['rsi_9'] / df['ema_rsi_9_3'] > 1.1) &
+            (df['ema_rsi_9_3'] / df['wma_rsi_9_21'] > 1.1) &
+            (df['prev_rsi_3'] <= 55) &
+            (df['rsi_3'] > 55) &
+            (df['rsi_3'] < 80) &
             (df['rsi_3_weekly'] > 50) &
             (df['rsi_3_monthly'] > 50) &
             (df['pct_price_change'] <= 5)
