@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import traceback
 import sys
-from helper import log
+from config.logger import log
 from typing import Tuple, Optional, Callable
 
 #################################################################################################

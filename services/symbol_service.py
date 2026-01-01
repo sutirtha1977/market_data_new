@@ -4,6 +4,7 @@ from config.paths import CSV_FILE
 from config.nse_constants import NSE_INDICES
 from config.logger import log
 import traceback
+from datetime import datetime
 
 #################################################################################################       
 # Refresh the `equity_symbols` table using values from a master CSV file.
@@ -229,18 +230,6 @@ def retrieve_equity_symbol(symbol, conn):
         return pd.DataFrame()
 #################################################################################################
 # Retrieves the most recent available price date from the equity_price_data table.
-# - Opens a database connection using get_db_connection().
-# - Executes a SQL query to select the maximum `date` for the given timeframe (default: "1d").
-# - Uses pandas read_sql() with parameter binding to safely substitute the timeframe.
-# - Reads the query result into a DataFrame and extracts the `latest_date` value.
-# - If a date exists:
-#       • converts it from string format ("YYYY-MM-DD") into a Python `date` object
-#       • returns the converted date for downstream use (e.g., finding missing days)
-# - If no date is found (empty table), returns None.
-# - If an exception occurs:
-#       • logs the error
-#       • returns None to avoid breaking calling workflows
-# - Always closes the database connection in the `finally` block for safety.
 # Returns either the latest available date as a `date` object, or None if not found.
 #################################################################################################
 def get_latest_equity_date(timeframe="1d"):
@@ -251,12 +240,45 @@ def get_latest_equity_date(timeframe="1d"):
             FROM equity_price_data
             WHERE timeframe = ?
         """
+
         df = pd.read_sql(sql, conn, params=[timeframe])
-        latest = df.iloc[0]['latest_date']
-        if latest is None:
+        latest = df.iloc[0]["latest_date"]
+
+        if not latest:
             return None
-        # Convert string → datetime
+
+        # Convert SQLite date string (YYYY-MM-DD) → Python date
         return datetime.strptime(latest, "%Y-%m-%d").date()
+
+    except Exception as e:
+        log(f"❗ Error fetching latest date: {e}")
+        return None
+
+    finally:
+        close_db_connection(conn)
+        
+def get_latest_equity_date_no_delv(timeframe="1d"):
+    conn = get_db_connection()
+    try:
+        sql = """
+            SELECT date
+            FROM equity_price_data
+            WHERE timeframe= ?
+            GROUP BY date
+            HAVING SUM(delv_pct IS NULL) = 0
+            ORDER BY date DESC
+            LIMIT 1;
+        """
+
+        df = pd.read_sql(sql, conn, params=[timeframe])
+        latest = df.iloc[0]["date"]
+
+        if not latest:
+            return None
+
+        # Convert SQLite date string (YYYY-MM-DD) → Python date
+        return datetime.strptime(latest, "%Y-%m-%d").date()
+
     except Exception as e:
         log(f"❗ Error fetching latest date: {e}")
         return None

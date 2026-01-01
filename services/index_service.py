@@ -3,7 +3,7 @@ import os
 import traceback
 import pandas as pd
 from db.connection import get_db_connection, close_db_connection
-from services.cleanup_service import delete_non_monday_weekly, delete_wkly_mthly_yahoo_files
+from services.cleanup_service import delete_non_monday_weekly, delete_files_in_folder
 from config.paths import YAHOO_INDEX_DIR
 from config.logger import log
 # from services.symbol_service import retrieve_equity_symbol
@@ -213,7 +213,7 @@ def insert_index_price_data():
         log(f"===== DELETE FILES FROM WEEKLY AND MONTHLY FOLDERS STARTED =====")
         for timeframe in FREQUENCIES:
             folder_path = os.path.join(YAHOO_INDEX_DIR, timeframe)
-            delete_wkly_mthly_yahoo_files(folder_path)
+            delete_files_in_folder(folder_path)
         log(f"===== DELETE FILES FROM WEEKLY AND MONTHLY FOLDERS FINISHED =====")
     except Exception as e:
         log(f"DOWNLOAD FAILED: {e}")   

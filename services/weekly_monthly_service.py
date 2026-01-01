@@ -1,19 +1,17 @@
 from config.logger import log
+from config.paths import FREQUENCIES
 from db.connection import get_db_connection, close_db_connection
 from services.symbol_service import retrieve_equity_symbol, get_latest_equity_date
+from services.bhavcopy_loader import download_missing_bhavcopies, update_equity_price_from_bhavcopy
+from services.equity_service import download_equity_yahoo_data_all_timeframes
 from datetime import datetime, timedelta
 import pandas as pd
 import traceback
 import yfinance as yf
 #################################################################################################
-# UPDATE WEEKLY & MONTHLY EQUITY PRICE DATA FROM YAHOO FINANCE
-#
-# Steps:
-# - Fetch all equity symbols (or filtered by input)
-# - Determine latest weekly/monthly dates stored in DB
-# - Download full Yahoo data for 1wk / 1mo interval
-# - Flatten MultiIndex columns and normalize structure
-# - Insert/Update into equity_price_data using UPSERT logic
+# Fetches missing weekly and monthly price candles for all symbols from Yahoo Finance 
+# and upserts them into equity_price_data while maintaining data continuity using latest DB dates. 
+# Ensures accurate multi-timeframe updates for scanners and indicators.
 #################################################################################################
 def update_weekly_monthly_from_yahoo():
     try:
@@ -29,7 +27,7 @@ def update_weekly_monthly_from_yahoo():
         log(f"🔎 Total symbols to process: {len(df_symbols)}")
 
         # ---- timeframes to process ----
-        yahoo_timeframes = ["1wk", "1mo"]
+        # yahoo_timeframes = ["1d", "1wk", "1mo"]
 
         # ---- SQL for inserting ----
         insert_sql = """
@@ -49,7 +47,7 @@ def update_weekly_monthly_from_yahoo():
         total_updates = 0
 
         # ---- Process weekly & monthly ----
-        for tf in yahoo_timeframes:
+        for tf in FREQUENCIES:
             log(f"\n📆 Updating timeframe: {tf}")
 
             latest_db_date = get_latest_equity_date(tf)
@@ -131,15 +129,16 @@ def update_weekly_monthly_from_yahoo():
 #################################################################################################
 # DOWNLOAD DAILY (NSE) and WEEKLY MONTHLY DATA (YAHOO)
 #################################################################################################
-# def download_daily_weekly_monthly_data():
-#     try:
-#         # download bhavcopy from nse
-#         download_missing_bhavcopies()
-#         # update bhavcopy data for daily timeframe in equity_price_data table
-#         update_equity_price_from_bhavcopy()
-#         update_weekly_monthly_from_yahoo()
-#         delete_non_monday_weekly()
-#     except Exception as e:
-#         log(f"❗ Unexpected error: {e}")
-#         traceback.print_exc()
-#         return None  
+def download_daily_weekly_monthly_data(override_date):
+    try:
+        # download bhavcopy from nse
+        download_missing_bhavcopies(override_date)
+        # update bhavcopy data for daily timeframe in equity_price_data table
+        update_equity_price_from_bhavcopy()
+        # update_weekly_monthly_from_yahoo()
+        download_equity_yahoo_data_all_timeframes()
+        # delete_non_monday_weekly()
+    except Exception as e:
+        log(f"❗ Unexpected error: {e}")
+        traceback.print_exc()
+        return None  

@@ -1,12 +1,12 @@
 from db.connection import get_db_connection, close_db_connection
 from config.logger import log
 from config.paths import FREQUENCIES
-from indicators_helper import (
+from services.indicators_helper import (
     calculate_rsi_series, calculate_bollinger, 
     calculate_atr, calculate_macd, 
     calculate_supertrend, calculate_ema, calculate_wma
 )
-from sql import SQL_INSERT
+from db.sql import SQL_INSERT
 import pandas as pd
 import traceback
 import time

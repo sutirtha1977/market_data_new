@@ -39,9 +39,9 @@ def delete_non_monday_weekly(is_index=False):
     finally:
         close_db_connection(conn)
 #################################################################################################
-# Delete files
+# Delete files from folder
 #################################################################################################  
-def delete_wkly_mthly_yahoo_files(folder_path):
+def delete_files_in_folder(folder_path):
     try:
         if not os.path.exists(folder_path):
             print(f"Folder does not exist: {folder_path}")

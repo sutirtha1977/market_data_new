@@ -3,27 +3,16 @@ import os
 import traceback
 import pandas as pd
 from db.connection import get_db_connection, close_db_connection
-from services.cleanup_service import delete_non_monday_weekly, delete_wkly_mthly_yahoo_files
+from services.cleanup_service import delete_non_monday_weekly, delete_files_in_folder
 from config.paths import YAHOO_EQUITY_DIR
 from config.logger import log
 from services.symbol_service import retrieve_equity_symbol
 from config.paths import FREQUENCIES
 #################################################################################################
-# Download historical equity price data for one or more symbols across
-# all configured timeframes and save each dataset as a CSV file.
-# Process:
-# 1. Retrieve the list of equity symbols matching the input filter (`symbol`).
-# 2. For each timeframe defined in FREQUENCIES (e.g., 1d, 1wk, 1mo):
-#    - Create the corresponding directory if missing.
-#    - For every retrieved symbol:
-#         * Build the Yahoo Finance ticker (symbol + ".NS").
-#         * Download full historical price data (`period="max"`).
-#         * Normalize the dataframe by flattening multi-index columns and
-#           converting the index to a date column.
-#         * Save the result as a CSV file named <symbol>.csv in the timeframe folder.
-# 3. Log progress and skip symbols without data or download failures.
-# This function prepares the raw price data required for subsequent
-# database imports and indicator calculations.
+# Downloads full historical Yahoo Finance price data for selected equity symbols across 
+# all timeframes (1d, 1wk, 1mo) and saves each symbol’s data as CSV.
+# Normalizes column format and stores files under data/yahoo/equity/<timeframe>/, 
+# preparing raw data for future DB loads and indicators.
 #################################################################################################    
 def download_equity_yahoo_data_all_timeframes(symbol):
     try:
@@ -35,11 +24,9 @@ def download_equity_yahoo_data_all_timeframes(symbol):
             return
         # Download yahoo data for all frequncy and save in csv format START
         for timeframe in FREQUENCIES:
-
             # --- create folder for timeframe ---
             timeframe_path = os.path.join(YAHOO_EQUITY_DIR, timeframe)
             os.makedirs(timeframe_path, exist_ok=True)
-
             for _, row in symbols_df.iterrows():
                 symbol_name = row["symbol"]
                 yahoo_symbol = f"{symbol_name}.NS"
@@ -75,20 +62,14 @@ def download_equity_yahoo_data_all_timeframes(symbol):
 
     except Exception as e:
         log(f"DOWNLOAD FAILED: {e}")
-
+        traceback.print_exc()
     finally:
         close_db_connection(conn)
 #################################################################################################
-# Load and store historical equity price data from CSV files into the database.
-# For each timeframe folder (e.g., 1d, 1wk, 1mo), this function:
-# 1. Reads every CSV file downloaded previously from Yahoo Finance.
-# 2. Matches the filename to a known equity symbol to retrieve its symbol_id.
-# 3. Cleans and normalizes the CSV data (column trimming, date formatting, rounding).
-# 4. Inserts or updates records into the `equity_price_data` table,
-#    marking each row as final (`is_final = 1`).
-# 5. Skips missing symbols or empty CSVs and logs each import result.
-# All timeframes and symbols are processed in a batch, ensuring the database
-# is continuously updated with the latest equity price history.
+# Loads historical Yahoo price data from CSVs for all timeframes and symbols, normalizes it, 
+# and inserts/updates into equity_price_data.
+# Ensures database stays synchronized with locally stored price history by batching 
+# imports and resolving conflicts automatically.
 #################################################################################################
 def import_equity_csv_to_db():
     try:
@@ -179,16 +160,10 @@ def import_equity_csv_to_db():
     finally:
         close_db_connection(conn)
 #################################################################################################
-# End-to-end workflow to refresh equity price data for a specific symbol.
-# Steps performed:
-#   1. Download historical price data for the given equity symbol across all
-#      supported timeframes using Yahoo Finance (`download_equity_yahoo_data_all_timeframes`).
-#   2. Import all downloaded equity CSV files into the database
-#      (`import_equity_csv_to_db`), inserting new records or updating existing ones.
-#   3. Remove any weekly records that are not Monday to maintain consistent
-#      week-start alignment (`delete_non_monday_weekly` with is_index=False).
-# This function automates the full data refresh cycle — download ➝ import ➝ cleanup —
-# for one equity symbol.
+# Downloads Yahoo historical equity prices for a symbol, imports them into the database, 
+# deletes non-Monday weekly rows, and cleans temporary CSVs — completing a full refresh cycle.
+# Automates the entire process: download → import → weekly cleanup → file cleanup, 
+# ensuring price data stays consistent and up-to-date
 #################################################################################################
 def insert_equity_price_data(symbol):
     try:
@@ -207,7 +182,7 @@ def insert_equity_price_data(symbol):
         log(f"===== DELETE FILES FROM FOLDERS STARTED =====")
         for timeframe in FREQUENCIES:
             folder_path = os.path.join(YAHOO_EQUITY_DIR, timeframe)
-            delete_wkly_mthly_yahoo_files(folder_path)
+            delete_files_in_folder(folder_path)
         log(f"===== DELETE FILES FROM FOLDERS FINISHED =====")
     except Exception as e:
         log(f"DOWNLOAD FAILED: {e}")

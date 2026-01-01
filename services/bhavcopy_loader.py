@@ -1,21 +1,21 @@
 import os
 import requests
 import traceback
+import shutil
+import pandas as pd
 from datetime import datetime, timedelta
 from db.connection import get_db_connection, close_db_connection
-from services.symbol_service import retrieve_equity_symbol, get_latest_equity_date
+from services.cleanup_service import delete_files_in_folder
+from services.symbol_service import (
+    retrieve_equity_symbol, get_latest_equity_date,
+    get_latest_equity_date_no_delv
+)
 from config.logger import log
-from config.paths import BHAVCOPY_DIR,NSE_URL_BHAV_DAILY
+from config.paths import BHAVCOPY_DIR,NSE_URL_BHAV_DAILY,BHAVCOPY_DIR_HIST
 #################################################################################################
-# Downloads a single NSE bhavcopy CSV file for a specific date.
-# - If no date is provided, defaults to today's date formatted as ddmmyyyy.
-# - Ensures the bhavcopy download folder exists.
-# - Builds the download URL and destination file path using the provided date.
-# - Sends a GET request to download the CSV; includes headers to mimic a browser.
-# - If the file is unavailable (e.g., holiday, weekend, or missing), logs the HTTP status and returns None.
-# - Saves the downloaded CSV content to the local folder when successful.
-# - Logs both download initiation and successful save location.
-# - Returns the full save path on success, or None on failure/exceptions.
+# Downloads the NSE bhavcopy CSV for a given date (default: today), saves it locally, 
+# and returns the file path.Handles missing files (holidays/weekends) and errors 
+# gracefully while logging all events.
 #################################################################################################
 def download_bhavcopy(date_str=None):
     """Download NSE bhavcopy for given date (ddmmyyyy)."""
@@ -49,20 +49,9 @@ def download_bhavcopy(date_str=None):
         traceback.print_exc()
         return None
 #################################################################################################
-# Downloads daily NSE bhavcopy CSV files for all missing dates based on the latest date in the database.
-# - Determines the most recent equity price date using get_latest_equity_date();
-#   optionally overrides it when override_date is provided.
-# - If the database has no price history, defaults to downloading files for the past 30 days.
-# - Computes the date range to download: latest_date + 1 day → today.
-# - Skips downloading when the database is already up to date.
-# - Ensures the bhavcopy folder exists, then clears all existing files to avoid mixing old data.
-# - Iterates through each date in the target range:
-#       • formats date as ddmmyyyy string
-#       • logs the processing date
-#       • calls download_bhavcopy() to fetch the corresponding CSV
-# - Tracks and logs the total number of bhavcopy files downloaded.
-# - Prints completion summary to console.
-# Returns nothing; downloaded files are saved directly to the configured NSE_BHAVCOPY_DAILY folder.
+# Detects missing NSE bhavcopy dates from the database and downloads all required daily CSVs 
+# into the bhavcopy folder.Supports override date, clears old files once, loops through dates, 
+# and logs the full download summary.
 #################################################################################################
 def download_missing_bhavcopies(override_date=None):
     log("🚀 Starting bhavcopy download process...")
@@ -114,32 +103,9 @@ def download_missing_bhavcopies(override_date=None):
     log(f"🎉 Download completed. Total downloaded: {download_count}")
     print(f"🎉 Download completed. Total downloaded: {download_count}")
 #################################################################################################
-# Updates daily equity price data in the database using downloaded NSE bhavcopy CSV files.
-# - Establishes a DB connection and cursor for executing SQL operations.
-# - Retrieves the list of target equity symbols using retrieve_equity_symbol();
-#   skips processing if no symbols are found.
-# - Scans the bhavcopy folder for all CSV files matching the pattern "sec_bhavdata_full_*".
-# - Defines an UPSERT SQL statement to insert/update daily price records in equity_price_data.
-# - Iterates over each bhavcopy CSV file:
-#       • extracts the trading date from the filename (ddmmyyyy → yyyy-mm-dd)
-#       • loads the CSV into a DataFrame and normalizes column names
-# - For each symbol in the symbol list:
-#       • finds the matching record in the CSV based on SYMBOL column
-#       • maps bhavcopy fields to target DB columns:
-#            OPEN_PRICE  → open
-#            HIGH_PRICE  → high
-#            LOW_PRICE   → low
-#            LAST_PRICE  → close
-#            CLOSE_PRICE → adj_close
-#            TTL_TRD_QNTY → volume
-#            DELIV_PER   → delv_pct
-#       • inserts or updates the record for timeframe "1d" in equity_price_data
-#       • logs per-symbol update status
-# - Commits the transaction once all files and symbols are processed.
-# - Maintains a running count of all inserted/updated rows and logs the final total.
-# - Rolls back the transaction on fatal errors to preserve data consistency.
-# - Always closes the DB connection in the finally block.
-# Returns nothing; writes updated price data directly into the database.
+# Inserts/updates daily OHLCV + delivery % for all symbols in DB using downloaded bhavcopy CSVs.
+# Loops CSV-by-CSV and symbol-by-symbol, maps fields, performs UPSERT into equity_price_data, 
+# and logs results.
 #################################################################################################
 def update_equity_price_from_bhavcopy(symbol="ALL"):
 
@@ -159,7 +125,7 @@ def update_equity_price_from_bhavcopy(symbol="ALL"):
 
         # ---- Locate CSV files ----
         csv_files = sorted([
-            f for f in os.listdir(NSE_BHAVCOPY_DAILY)
+            f for f in os.listdir(BHAVCOPY_DIR)
             if f.endswith(".csv") and "sec_bhavdata_full_" in f
         ])
 
@@ -186,7 +152,7 @@ def update_equity_price_from_bhavcopy(symbol="ALL"):
 
         # ---- Process each CSV ----
         for file in csv_files:
-            csv_path = os.path.join(NSE_BHAVCOPY_DAILY, file)
+            csv_path = os.path.join(BHAVCOPY_DIR, file)
 
             # ---- Extract date (ddmmyyyy) from filename ----
             try:
@@ -223,21 +189,36 @@ def update_equity_price_from_bhavcopy(symbol="ALL"):
                     log(f"⚠ {sym}: not found in CSV for {file_date}")
                     continue
 
-                df_row = df_row.iloc[0]  # first match
+                # df_row = df_row.iloc[0]  # first match
 
-                # ---- Map columns ----
-                record = (
-                    sid,
-                    "1d",
-                    file_date,
-                    df_row.get("OPEN_PRICE", None),
-                    df_row.get("HIGH_PRICE", None),
-                    df_row.get("LOW_PRICE", None),
-                    df_row.get("LAST_PRICE", None),
-                    df_row.get("CLOSE_PRICE", None),
-                    df_row.get("TTL_TRD_QNTY", None),
-                    df_row.get("DELIV_PER", None),
-                )
+                # # ---- Map columns ----
+                # record = (
+                #     sid,
+                #     "1d",
+                #     file_date,
+                #     df_row.get("OPEN_PRICE", None),
+                #     df_row.get("HIGH_PRICE", None),
+                #     df_row.get("LOW_PRICE", None),
+                #     df_row.get("LAST_PRICE", None),
+                #     df_row.get("CLOSE_PRICE", None),
+                #     df_row.get("TTL_TRD_QNTY", None),
+                #     df_row.get("DELIV_PER", None),
+                # )
+                df_row = df_row.iloc[0]
+
+                # --- fix numeric fields ---
+                clean_int = lambda x: int(str(x).replace(",", "")) if pd.notna(x) else None
+                clean_float = lambda x: float(str(x).replace(",", "")) if pd.notna(x) else None
+
+                open_p  = clean_float(df_row.get("OPEN_PRICE"))
+                high_p  = clean_float(df_row.get("HIGH_PRICE"))
+                low_p   = clean_float(df_row.get("LOW_PRICE"))
+                close_p = clean_float(df_row.get("LAST_PRICE"))
+                adj_c   = clean_float(df_row.get("CLOSE_PRICE"))
+                volume  = clean_int(df_row.get("TTL_TRD_QNTY"))
+                delv    = clean_float(df_row.get("DELIV_PER"))
+
+                record = (sid, "1d", file_date, open_p, high_p, low_p, close_p, adj_c, volume, delv)
 
                 cur.execute(insert_sql, record)
                 total_updates += 1
@@ -255,3 +236,195 @@ def update_equity_price_from_bhavcopy(symbol="ALL"):
     finally:
         close_db_connection(conn)
         log("🔚 DB connection closed")
+#################################################################################################
+# Reads bhavcopy CSVs and updates only the `delv_pct` field in `equity_price_data` 
+# for matching dates/symbols,inserting missing rows and leaving all price fields untouched.
+#################################################################################################
+def update_equity_delv_pct_from_bhavcopy(symbol="ALL"):
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        log("🚀 Starting DELV_PCT update from bhavcopy CSV files")
+
+        # ---- Load symbols ----
+        df_symbols = retrieve_equity_symbol(symbol, conn)
+        if df_symbols.empty:
+            log("❗ No symbols found to process")
+            return
+
+        log(f"🔎 Symbols to process: {len(df_symbols)}")
+
+        # ---- Locate CSV files ----
+        csv_files = sorted([
+            f for f in os.listdir(BHAVCOPY_DIR)
+            if f.endswith(".csv") and "sec_bhavdata_full_" in f
+        ])
+
+        if not csv_files:
+            log("❗ No bhavcopy CSV files found to process")
+            return
+
+        # ---- SQL: only update/insert delv_pct ----
+        sql_delv = """
+            INSERT INTO equity_price_data (symbol_id, timeframe, date, delv_pct, is_final)
+            VALUES (?, '1d', ?, ?, 1)
+            ON CONFLICT(symbol_id, timeframe, date)
+            DO UPDATE SET
+                delv_pct = excluded.delv_pct
+        """
+
+        total_updates = 0
+
+        # ---- Process each CSV ----
+        for file in csv_files:
+            csv_path = os.path.join(BHAVCOPY_DIR, file)
+
+            # extract date from filename
+            try:
+                date_str = file.split("_")[-1].split(".")[0]  # 31122025
+                file_date = datetime.strptime(date_str, "%d%m%Y").strftime("%Y-%m-%d")
+            except Exception:
+                log(f"⚠ Skipping invalid filename format: {file}")
+                continue
+
+            log(f"\n📂 Processing: {file} | Date: {file_date}")
+
+            try:
+                df_csv = pd.read_csv(csv_path)
+            except Exception:
+                log(f"❗ Failed to read CSV: {file}")
+                continue
+
+            if df_csv.empty:
+                log(f"⚠ Empty CSV, skipping")
+                continue
+
+            df_csv.columns = [c.strip().upper() for c in df_csv.columns]
+
+            # ---- Process each symbol ----
+            for _, row_sym in df_symbols.iterrows():
+                sid = row_sym["symbol_id"]
+                sym = row_sym["symbol"]
+
+                df_row = df_csv[df_csv["SYMBOL"] == sym]
+                if df_row.empty:
+                    continue
+
+                df_row = df_row.iloc[0]
+
+                # clean delv_pct only
+                try:
+                    delv = float(str(df_row.get("DELIV_PER")).replace(",", "")) \
+                            if pd.notna(df_row.get("DELIV_PER")) else None
+                except:
+                    delv = None
+
+                cur.execute(sql_delv, (sid, file_date, delv))
+                total_updates += 1
+
+                log(f"✔ {sym:<12} delv_pct updated for {file_date}")
+
+        conn.commit()
+        log(f"\n🎉 DELV_PCT update complete — total rows affected: {total_updates}")
+        print(f"\n🎉 DELV_PCT update complete — total rows affected: {total_updates}")
+
+    except Exception as e:
+        log(f"❗ ERROR during delv update: {e}")
+        conn.rollback()
+
+    finally:
+        close_db_connection(conn)
+        log("🔚 DB connection closed")
+#################################################################################################
+# Updates only `delv_pct` in equity_price_data using historical bhavcopy files 
+# named <SYMBOL>_*.csv. Reads each CSV, parses Date → yyyy-mm-dd, matches by symbol_id + date, 
+# and performs UPDATE.
+#################################################################################################
+def update_hist_delv_pct_from_bhavcopy():
+    TIMEFRAME = "1d"
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # --- get symbol_id mapping for faster lookup
+        symbols = retrieve_equity_symbol("ALL", conn)  # expected list of dicts or tuples
+        symbol_map = {row["symbol"].upper(): row["symbol_id"] for _, row in symbols.iterrows()}
+        print(f"Loaded {len(symbol_map)} symbols from DB")
+
+        # --- loop bhavcopy folder
+        for file_name in os.listdir(BHAVCOPY_DIR_HIST):
+            if not file_name.lower().endswith(".csv"):
+                continue
+
+            # extract symbol part: CUPID_29DEC2025.csv → CUPID
+            symbol = file_name.split("_")[0].upper()
+            if symbol not in symbol_map:
+                print(f"⚠️ Symbol in file not found in DB: {symbol}")
+                continue
+
+            symbol_id = symbol_map[symbol]
+            csv_path = BHAVCOPY_DIR_HIST / file_name
+
+            try:
+                df = pd.read_csv(csv_path)
+                # normalize headers (remove spaces, lowercase)
+                df.columns = [col.strip() for col in df.columns]
+
+                # required CSV columns
+                if "Date" not in df.columns or "% Dly Qt to Traded Qty" not in df.columns:
+                    print(f"❌ Missing required columns in {file_name}")
+                    continue
+
+                # iterate rows for this symbol CSV
+                for _, row in df.iterrows():
+                    try:
+                        # Convert formats like '24-Aug-2025' → '2025-08-24'
+                        date_obj = pd.to_datetime(row["Date"], format="%d-%b-%Y").strftime("%Y-%m-%d")
+                        delv_pct = row["% Dly Qt to Traded Qty"]
+                    
+                        cur.execute("""
+                            UPDATE equity_price_data
+                            SET delv_pct = ?
+                            WHERE symbol_id = ?
+                            AND timeframe = ?
+                            AND date = DATE(?)
+                        """, (delv_pct, symbol_id, TIMEFRAME, date_obj))
+                            
+                    except Exception as e:
+                        print(f"❌ DB update error for {symbol} {date_obj}: {e}")
+                        traceback.print_exc()
+
+                print(f"✔ Updated delv_pct for {symbol}")
+
+            except Exception as e:
+                print(f"❌ Failed reading {file_name}: {e}")
+
+        # conn.commit()
+        # conn.close()
+        print("🎉 Done updating delivery percentages.")
+    except Exception as e:
+        log(f"❗ ERROR during update: {e}")
+        traceback.print_exc(0)
+    finally:
+        conn.commit()
+        close_db_connection(conn)
+#################################################################################################
+# Finds the latest date where delivery % is missing, downloads only those bhavcopies, 
+# updates `delv_pct` in the database, and cleans up downloaded files.
+#################################################################################################
+def update_latest_delv_pct_from_bhavcopy():
+    try:
+        latest_date = get_latest_equity_date_no_delv()
+        if latest_date is not None:
+            latest_date_str = latest_date.strftime("%Y-%m-%d")
+        download_missing_bhavcopies(latest_date_str)
+        update_equity_delv_pct_from_bhavcopy()
+        delete_files_in_folder(BHAVCOPY_DIR)
+    except Exception as e:
+        log(f"❗ ERROR: {e}")
+        traceback.print_exc(0)
+        
+# if __name__ == "__main__":
+#     update_hist_delv_pct_from_bhavcopy()
