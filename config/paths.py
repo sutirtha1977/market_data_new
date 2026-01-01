@@ -12,6 +12,7 @@ YAHOO_DIR = DATA_DIR / "yahoo"
 YAHOO_EQUITY_DIR = YAHOO_DIR / "equity"
 YAHOO_INDEX_DIR = YAHOO_DIR / "index"
 EXPORT_DIR = DATA_DIR / "exports"
+BHAVCOPY_DIR_HIST = DATA_DIR / "bhavcopy" / "equity_bhav_29Dec2025"
 
 SCANNER_FOLDER = EXPORT_DIR  # for scanner exports
 
