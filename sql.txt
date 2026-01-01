@@ -1,0 +1,54 @@
+SELECT 
+    date,
+    CASE strftime('%w', date)
+        WHEN '0' THEN 'Sunday'
+        WHEN '1' THEN 'Monday'
+        WHEN '2' THEN 'Tuesday'
+        WHEN '3' THEN 'Wednesday'
+        WHEN '4' THEN 'Thursday'
+        WHEN '5' THEN 'Friday'
+        WHEN '6' THEN 'Saturday'
+    END AS weekday,
+    *
+FROM equity_price_data
+WHERE timeframe = '1wk'
+  AND strftime('%w', date) <> '1'
+ORDER BY date;
+_________________________________________________
+SELECT 
+    date,
+    COUNT(DISTINCT symbol_id) AS symbol_count
+FROM equity_price_data
+WHERE timeframe = '1mo'
+GROUP BY date
+ORDER BY date;
+_________________________________________________
+SELECT 
+    date,
+    CASE strftime('%w', date)
+        WHEN '0' THEN 'Sunday'
+        WHEN '1' THEN 'Monday'
+        WHEN '2' THEN 'Tuesday'
+        WHEN '3' THEN 'Wednesday'
+        WHEN '4' THEN 'Thursday'
+        WHEN '5' THEN 'Friday'
+        WHEN '6' THEN 'Saturday'
+    END AS weekday,
+    *
+FROM index_price_data
+WHERE timeframe = '1wk'
+  AND strftime('%w', date) <> '1'
+ORDER BY date;
+_________________________________________________
+SELECT e.symbol_id, e.symbol
+FROM equity_symbols e
+LEFT JOIN equity_price_data p
+    ON e.symbol_id = p.symbol_id
+    AND p.timeframe = '1d'
+    AND p.date = '2025-12-31'
+WHERE p.symbol_id IS NULL
+ORDER BY e.symbol;
+_________________________________________________
+Bhavcopy link
+https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_26122025.csv
+https://www.nseindia.com/api/historicalOR/generateSecurityWiseHistoricalData?from=01-01-2000&to=31-12-2000&symbol=RELIANCE&type=priceVolumeDeliverable&series=ALL&csv=true
