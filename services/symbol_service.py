@@ -7,7 +7,8 @@ import traceback
 from datetime import datetime
 
 #################################################################################################       
-# Refresh the `equity_symbols` table using values from a master CSV file.
+# Loads and synchronizes NSE equity symbols from a master CSV into the equity_symbols table,
+# safely inserting new records and enriching missing metadata (series, listing date, ISIN).
 #################################################################################################
 def refresh_equity():
     try:
@@ -140,7 +141,8 @@ def refresh_equity():
     finally:
         close_db_connection(conn)
 #################################################################################################
-# Refresh the `index_symbols` table with the latest predefined index list.
+# Refreshes the index_symbols table using a predefined NSE index list,
+# ensuring new indices are inserted and existing ones are reactivated.
 #################################################################################################
 def refresh_indices():
     try:
@@ -191,7 +193,8 @@ def refresh_indices():
     finally:
         close_db_connection(conn)
 #################################################################################################
-# Retrieve equity symbols
+# Retrieves equity symbol IDs and codes based on user input (ALL or comma-separated list),
+# returning results as a Pandas DataFrame for downstream processing.
 #################################################################################################       
 def retrieve_equity_symbol(symbol, conn):
     try:
@@ -229,8 +232,8 @@ def retrieve_equity_symbol(symbol, conn):
         log(f"RETRIEVE SYMBOL FAILED: {e}")
         return pd.DataFrame()
 #################################################################################################
-# Retrieves the most recent available price date from the equity_price_data table.
-# Returns either the latest available date as a `date` object, or None if not found.
+# Fetches the most recent available trading date for a given timeframe
+# from the equity_price_data table.
 #################################################################################################
 def get_latest_equity_date(timeframe="1d"):
     conn = get_db_connection()
@@ -256,21 +259,30 @@ def get_latest_equity_date(timeframe="1d"):
 
     finally:
         close_db_connection(conn)
-        
+#################################################################################################
+# Returns the latest trading date where delivery percentage (delv_pct)
+# is available for all symbols for the specified timeframe.
+#################################################################################################
 def get_latest_equity_date_no_delv(timeframe="1d"):
     conn = get_db_connection()
     try:
         sql = """
             SELECT date
             FROM equity_price_data
-            WHERE timeframe= ?
-            GROUP BY date
-            HAVING SUM(delv_pct IS NULL) = 0
+            WHERE timeframe = ?
+            AND date IN (
+                SELECT date
+                FROM equity_price_data
+                WHERE timeframe = ?
+                GROUP BY date
+                HAVING COUNT(*) = COUNT(delv_pct)
+            )
             ORDER BY date DESC
             LIMIT 1;
         """
-
-        df = pd.read_sql(sql, conn, params=[timeframe])
+        # df = pd.read_sql(sql, conn, params=[timeframe])
+        df = pd.read_sql(sql, conn, params=[timeframe, timeframe])
+        
         latest = df.iloc[0]["date"]
 
         if not latest:
