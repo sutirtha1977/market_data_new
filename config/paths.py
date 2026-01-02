@@ -8,6 +8,8 @@ BASE_DIR = Path(__file__).parent.parent
 # ---------------- Directories ----------------
 DATA_DIR = BASE_DIR / "data"
 BHAVCOPY_DIR = DATA_DIR / "bhavcopy" / "daily"
+BHAVCOPY_DIR_HIST = DATA_DIR / "bhavcopy" / "equity_bhav_29Dec2025"
+BHAVCOPY_DIR_DB = DATA_DIR / "bhavcopy" / "equit_bhav_29Dec2025_onwards"
 YAHOO_DIR = DATA_DIR / "yahoo"
 YAHOO_EQUITY_DIR = YAHOO_DIR / "equity"
 YAHOO_INDEX_DIR = YAHOO_DIR / "index"
