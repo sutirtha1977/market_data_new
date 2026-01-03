@@ -3,76 +3,79 @@ import traceback
 from datetime import datetime, timedelta
 from db.connection import get_db_connection, close_db_connection
 
+#################################################################################################
+# Fetches daily equity indicators joined with price data and aligns weekly/monthly RSI 
+# for each stock over a given lookback period, returning a clean DataFrame 
+# suitable for multi-timeframe scanning.
+#################################################################################################  
+
 def get_base_data(lookback_days: int = 365, start_date: str | None = None) -> pd.DataFrame:
     """Fetches daily equity indicators and aligns weekly & monthly RSI values."""
     conn = get_db_connection()
+    df_daily = pd.DataFrame()  # initialize in case of failure
     try:
-        # DAILY
-        # Compute date range
-        if start_date:
-            start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
-        else:
-            start_date_obj = datetime.now().date()
-
+        # 1️⃣ Compute date range
+        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else datetime.now().date()
         end_date_obj = start_date_obj - timedelta(days=lookback_days)
 
-        # Use BETWEEN in SQL for clarity
+        # 2️⃣ Fetch daily indicators + price
         daily_sql = f"""
             SELECT d.symbol_id, s.symbol, d.date, p.adj_close,
-                d.rsi_3, d.rsi_9, d.ema_rsi_9_3, d.wma_rsi_9_21,
-                d.pct_price_change, p.delv_pct, d.sma_20, d.bb_upper
+                   d.rsi_3, d.rsi_9, d.ema_rsi_9_3, d.wma_rsi_9_21,
+                   d.pct_price_change, p.delv_pct, d.sma_20, d.bb_upper
             FROM equity_indicators d
             JOIN equity_price_data p 
-            ON p.symbol_id = d.symbol_id AND p.date = d.date AND p.timeframe='1d'
+                ON p.symbol_id = d.symbol_id AND p.date = d.date AND p.timeframe='1d'
             JOIN equity_symbols s ON s.symbol_id = d.symbol_id
             WHERE d.timeframe = '1d'
-            AND d.date BETWEEN '{end_date_obj}' AND '{start_date_obj}'
+              AND d.date BETWEEN '{end_date_obj}' AND '{start_date_obj}'
             ORDER BY d.symbol_id, d.date
         """
         df_daily = pd.read_sql(daily_sql, conn).sort_values(['symbol_id','date'])
-        df_daily['delv_pct'] = pd.to_numeric(df_daily['delv_pct'], errors='coerce')
+
+        # 3️⃣ Convert numeric columns
+        numeric_cols = ['adj_close','rsi_3','rsi_9','ema_rsi_9_3','wma_rsi_9_21','sma_20','bb_upper','delv_pct']
+        for col in numeric_cols:
+            df_daily[col] = pd.to_numeric(df_daily[col].squeeze(), errors='coerce')
+
+        # 4️⃣ Previous day RSI
         df_daily['prev_rsi_3'] = df_daily.groupby('symbol_id')['rsi_3'].shift(1)
-        # -------------------- WEEKLY --------------------
+
+        # 5️⃣ Weekly
         df_weekly = pd.read_sql(f"""
             SELECT symbol_id, date, rsi_3, bb_upper
             FROM equity_indicators
             WHERE timeframe='1wk'
-            AND date BETWEEN '{end_date_obj}' AND '{start_date_obj}'
+              AND date BETWEEN '{end_date_obj}' AND '{start_date_obj}'
             ORDER BY symbol_id, date
         """, conn)
+        df_weekly.rename(columns={'rsi_3':'rsi_3_weekly','date':'weekly_date'}, inplace=True)
+        df_weekly['weekly_date'] = pd.to_datetime(df_weekly['weekly_date'])
+        df_daily = df_daily.merge(df_weekly, on='symbol_id', how='left')
+        df_daily = df_daily[df_daily['weekly_date'] <= df_daily['date']]
+        df_daily = df_daily.sort_values(['symbol_id','date','weekly_date']).groupby(['symbol_id','date']).last().reset_index()
 
-        # -------------------- MONTHLY --------------------
+        # 6️⃣ Monthly
         df_monthly = pd.read_sql(f"""
             SELECT symbol_id, date, rsi_3, bb_upper
             FROM equity_indicators
             WHERE timeframe='1mo'
-            AND date BETWEEN '{end_date_obj}' AND '{start_date_obj}'
+              AND date BETWEEN '{end_date_obj}' AND '{start_date_obj}'
             ORDER BY symbol_id, date
         """, conn)
-
-        # Align weekly and monthly <= daily
-        df_daily = (
-            df_daily
-            .merge(df_weekly.rename(columns={'rsi_3':'rsi_3_weekly','date':'weekly_date'}), on='symbol_id', how='left')
-            .query("weekly_date <= date")
-            .sort_values(['symbol_id','date','weekly_date'])
-            .groupby(['symbol_id','date']).last().reset_index()
-        )
-
-        df_daily = (
-            df_daily
-            .merge(df_monthly.rename(columns={'rsi_3':'rsi_3_monthly','date':'monthly_date'}), on='symbol_id', how='left')
-            .query("monthly_date <= date")
-            .sort_values(['symbol_id','date','monthly_date'])
-            .groupby(['symbol_id','date']).last().reset_index()
-        )
+        df_monthly.rename(columns={'rsi_3':'rsi_3_monthly','date':'monthly_date'}, inplace=True)
+        df_monthly['monthly_date'] = pd.to_datetime(df_monthly['monthly_date'])
+        df_daily = df_daily.merge(df_monthly, on='symbol_id', how='left')
+        df_daily = df_daily[df_daily['monthly_date'] <= df_daily['date']]
+        df_daily = df_daily.sort_values(['symbol_id','date','monthly_date']).groupby(['symbol_id','date']).last().reset_index()
 
         return df_daily
-    
+
     except Exception as e:
-        print(f"❌ get base data failed | {e}")
+        print(f"❌ get_base_data failed | {e}")
         traceback.print_exc()
         return df_daily
+
     finally:
         close_db_connection(conn)
         
