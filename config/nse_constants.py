@@ -9,16 +9,19 @@ FREQ_COLORS = {
 }
 
 MAIN_MENU_ITEMS = [
-    ("1", "Create Database, Update Equity and Index Symbols", "Run Once", "red"),
-    ("2", "Download Equity and Index data (Yahoo) and update equity and index price tables", "Run Once", "blue"),
-    ("3", "Update Delivery % till 29-Dec-2025", "Run Once", "yellow"),
-    ("4", "Update Delivery % till Latest DB Date", "Run Once", "blue"),
-    ("5", "Update 52 weeks stats", "Run Daily", "yellow"),
-    ("6", "Update Equity and Index Indicators", "Run Daily", "yellow"),
-    ("7", "Download Yahoo data and Bhavcopy incemental", "Run Daily", "yellow"),
-    ("8", "SCANNER: Hilega Milega", "Run Daily", "yellow"),
-    ("9", "SCANNER: Playground", "Run As Required", "yellow"),
-    # ("10", "Backtest SCANNER: File Name", "Run As Required", "yellow"),
+    ("1", "Create Database with Base Tables and Data", "Run Once", "red"),
+    ("2", "Update Equity and Index Symbols", "Run Once", "red"),
+    ("3", "Download Equity and Index data (Yahoo) and update equity and index price tables", "Run Once", "blue"),
+    ("4", "Update Delivery % till 29-Dec-2025", "Run Once", "yellow"),
+    ("5", "Update Delivery % till Latest DB Date", "Run Once", "blue"),
+    ("6", "Update 52 weeks stats", "Run Daily", "yellow"),
+    ("7", "Update Equity and Index Indicators", "Run Daily", "yellow"),
+    ("8", "Download Yahoo data and Bhavcopy incemental", "Run Daily", "yellow"),
+    ("9", "SCANNER: Hilega Milega", "Run Daily", "yellow"),
+    ("10", "SCANNER: Weekly", "Run Daily", "yellow"),
+    ("11", "SCANNER: Playground", "Run As Required", "yellow"),
+    ("12", "SCANNER: Test", "Run As Required", "yellow"),
+    ("13", "Backtest Scanners", "Run As Required", "yellow"),
     ("0", "Exit", "", "white"),
 ]
 # ---------------- NSE Indices ----------------
