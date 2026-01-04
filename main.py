@@ -23,8 +23,10 @@ from services.bhavcopy_loader import (
 )
 from services.incremental_service import incr_yahoo_bhavcopy_download
 from services.scanners.backtest_service import backtest_all_scanners
-from services.scanners.scanner_HM import scanner_hilega_milega
+from services.scanners.scanner_HM import run_scanner_hilega_milega
+from services.scanners.scanner_weekly import run_scanner_weekly
 from services.scanners.scanner_play import scanner_play_multi_years
+from services.scanners.scanner_test import run_discount_zone_scanner
 from db.create_db import create_stock_database
 
 console = Console()
@@ -74,8 +76,10 @@ def print_df_rich(df, max_rows: int = 20) -> None:
 def action_create_db() -> None:
     clear_log()
     console.print("[bold green]Database Creation Start....[/bold green]")
-    create_stock_database(drop_existing=True)
+    create_stock_database(drop_tables=True)
     console.print("[bold green]Database Creation Finish....[/bold green]")
+    
+def action_update_equity_index_symbols() -> None:
     console.print("[bold green]Equity Symbols Insert Start....[/bold green]")
     refresh_equity()
     console.print("[bold green]Equity Symbols Insert Finish....[/bold green]")
@@ -130,9 +134,16 @@ def action_scanner(scanner_type: str) -> None:
             "Enter start date (YYYY-MM-DD) or press Enter for auto-detect",
             default=""       # ensures empty Enter returns ""
         ).strip()
-        df = scanner_hilega_milega(user_date)
+        df = run_scanner_hilega_milega(user_date)
         print(df.head())
-    elif scanner_type == "WIP":
+    if scanner_type == "WEEK":
+        user_date = Prompt.ask(
+            "Enter start date (YYYY-MM-DD) or press Enter for auto-detect",
+            default=""       # ensures empty Enter returns ""
+        ).strip()
+        df = run_scanner_weekly(user_date)
+        print(df.head())   
+    elif scanner_type == "PLAY":
         user_year = Prompt.ask("Enter start year:", default="2026").strip()
         user_lookback = Prompt.ask("Enter lookback count:", default="15").strip()
         try:
@@ -142,16 +153,14 @@ def action_scanner(scanner_type: str) -> None:
             lookback_count = 0  # fallback default
         print(f"Start Year: {user_year}, Lookback: {lookback_count}")
         scanner_play_multi_years(user_year,lookback_count)
+    elif scanner_type == "TEST":
+        run_discount_zone_scanner()
 
-# def action_backtest() -> None:
-#     clear_log()
-#     log("SYMBOL | TIMEFRAME | STATUS\n" + "-" * 40 + "\n")
-#     # scanner_file = Prompt.ask("Enter Scanner CSV file name (e.g., Scanner_HM_01Jan2026.csv)").strip()
-#     # if not scanner_file:
-#     #     console.print("[bold red]❌ No file entered. Exiting action.[/bold red]")
-#     #     return
-#     df = backtest_all_scanners()
-#     print(df)
+def action_backtest() -> None:
+    clear_log()
+    log("SYMBOL | TIMEFRAME | STATUS\n" + "-" * 40 + "\n")
+    df = backtest_all_scanners()
+    print(df)
 
 #################################################################################################
 # MAIN LOOP
@@ -168,15 +177,18 @@ def data_manager_user_input() -> None:
 
             actions = {
                 "1": action_create_db,
-                "2": action_update_equity_index_prices,
-                "3": action_delv_pct_hist,
-                "4": action_delv_pct_latest,
-                "5": action_refresh_52week_stats,
-                "6": action_refresh_indicators,
-                "7": action_incr_price_data_update,
-                "8": lambda: action_scanner("HM"),
-                "9": lambda: action_scanner("WIP"),
-                # "10": action_backtest,
+                "2": action_update_equity_index_symbols,
+                "3": action_update_equity_index_prices,
+                "4": action_delv_pct_hist,
+                "5": action_delv_pct_latest,
+                "6": action_refresh_52week_stats,
+                "7": action_refresh_indicators,
+                "8": action_incr_price_data_update,
+                "9": lambda: action_scanner("HM"),
+                "10": lambda: action_scanner("WEEK"),
+                "11": lambda: action_scanner("PLAY"),
+                "12": lambda: action_scanner("TEST"),
+                "13": action_backtest,
             }
 
             func = actions.get(choice)
