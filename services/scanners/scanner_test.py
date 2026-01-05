@@ -1,84 +1,128 @@
-# scanner_discount_zone.py
-import traceback
-from datetime import datetime
 import pandas as pd
-from db.connection import get_db_connection, close_db_connection
-from services.cleanup_service import delete_files_in_folder
+from db.connection import get_db_connection
 from services.scanners.export_service import export_to_csv
+from services.cleanup_service import delete_files_in_folder
 from config.paths import SCANNER_FOLDER
 from config.logger import log
 
-PRICE_THRESHOLD_PCT = 2  # % above zone low to trigger signal
 
-#################################################################################################
-# RUN DISCOUNT ZONE SCANNER USING SINGLE SQL
-#################################################################################################
-def run_discount_zone_scanner(year: int = 2025):
-    """
-    Runs the Discount Zone scanner using SQL.
-    Returns all signals where price approaches a Discount Zone.
-    """
-    conn = None
-    try:
-        log("🧹 Clearing scanner folder...")
-        delete_files_in_folder(SCANNER_FOLDER)
-
-        conn = get_db_connection()
-
-        start_date = f"{year}-01-01"
-        end_date = f"{year}-12-31"
-
-        log(f"🔍 Running Discount Zone scan for year {year}...")
-
-        # ---------------- SINGLE SQL TO FETCH SIGNALS ----------------
-        sql = f"""
-        WITH zone_thresholds AS (
-            SELECT
-                symbol_id,
-                timeframe,
-                date AS zone_date,
-                low AS zone_low,
-                high AS zone_high,
-                low * (1 + {PRICE_THRESHOLD_PCT}/100.0) AS threshold
-            FROM smc_structures
-            WHERE structure_type = 'Discount_Zone'
-              AND date BETWEEN '{start_date}' AND '{end_date}'
-        )
+# --------------------------------------------------
+# STEP 1: LOAD DAILY DATA (2025)
+# --------------------------------------------------
+def get_daily_2025(conn) -> pd.DataFrame:
+    sql = """
         SELECT
-            p.symbol_id,
-            p.timeframe,
-            p.date AS price_date,
-            p.close AS price_close,
-            z.zone_date,
-            z.zone_low,
-            z.zone_high,
-            'Buy_Discount_Zone' AS signal
-        FROM equity_price_data p
-        JOIN zone_thresholds z
-          ON p.symbol_id = z.symbol_id
-         AND p.timeframe = z.timeframe
-         AND p.date >= z.zone_date
-        WHERE p.low <= z.threshold
-          AND p.date BETWEEN '{start_date}' AND '{end_date}'
-        ORDER BY p.symbol_id, p.timeframe, p.date;
-        """
-        print(sql)
-        # df_signals = pd.read_sql(sql, conn)
-        # if df_signals.empty:
-        #     log(f"⚠ No Discount Zone signals found for {year}")
-        #     return pd.DataFrame()
+            ei.symbol_id,
+            s.symbol,
+            ei.date,
+            ei.rsi_3,
+            ei.rsi_9,
+            ei.rsi_14,
+            ei.ema_rsi_9_3,
+            ei.wma_rsi_9_21
+        FROM equity_indicators ei
+        JOIN equity_symbols s
+          ON ei.symbol_id = s.symbol_id
+        WHERE ei.timeframe = '1d'
+          AND ei.date BETWEEN '2025-01-01' AND '2025-12-31'
+          AND ei.is_final = 1
+    """
+    return pd.read_sql(sql, conn, parse_dates=["date"])
 
-        # # ---------------- EXPORT RESULTS ----------------
-        # path = export_to_csv(df_signals, SCANNER_FOLDER, f"Discount_Zone_{year}")
-        # log(f"✅ Discount Zone scanner completed. Results saved to: {path}")
 
-        # return df_signals
+# --------------------------------------------------
+# STEP 2: LOAD MONTHLY OUTCOMES
+# --------------------------------------------------
+def get_monthly_outcomes(conn) -> pd.DataFrame:
+    sql = """
+        SELECT
+            symbol_id,
+            date AS month_end,
+            pct_price_change
+        FROM equity_indicators
+        WHERE timeframe = '1mo'
+          AND date BETWEEN '2025-01-01' AND '2025-12-31'
+          AND is_final = 1
+    """
+    return pd.read_sql(sql, conn, parse_dates=["month_end"])
+
+
+# --------------------------------------------------
+# STEP 3: FEATURE ENGINEERING
+# --------------------------------------------------
+def add_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    df["rsi3_rsi9"] = df["rsi_3"] / df["rsi_9"]
+
+    df["order_lock"] = (
+        (df["rsi_3"] > df["rsi_9"]) &
+        (df["rsi_9"] > df["ema_rsi_9_3"]) &
+        (df["ema_rsi_9_3"] > df["wma_rsi_9_21"])
+    )
+
+    df["acceleration"] = (
+        (df["rsi_3"] - df["rsi_9"]) >
+        (df["rsi_9"] - df["ema_rsi_9_3"])
+    )
+
+    return df
+
+
+# --------------------------------------------------
+# STEP 4: MAP DAILY → NEXT MONTH OUTCOME
+# --------------------------------------------------
+def map_future_success(daily: pd.DataFrame, monthly: pd.DataFrame) -> pd.DataFrame:
+    daily = daily.copy()
+    monthly = monthly.copy()
+
+    monthly["month"] = monthly["month_end"].dt.to_period("M")
+    daily["month"] = daily["date"].dt.to_period("M") + 1
+
+    merged = daily.merge(
+        monthly[["symbol_id", "month", "pct_price_change"]],
+        on=["symbol_id", "month"],
+        how="left"
+    )
+
+    merged["success"] = (merged["pct_price_change"] >= 50).astype(int)
+    merged.drop(columns=["month"], inplace=True)
+
+    return merged
+
+
+# --------------------------------------------------
+# STEP 5: RUN 2025 PROBABILISTIC SCANNER
+# --------------------------------------------------
+def run_probabilistic_scanner():
+    log("🚀 Running 2025 probabilistic scanner")
+    # ---------------- CLEAN SCANNER FOLDER ----------------
+    print(f"===== DELETE FILES FROM SCANNER FOLDER STARTED =====")
+    delete_files_in_folder(SCANNER_FOLDER)
+    print(f"===== DELETE FILES FROM SCANNER FOLDER FINISHED =====")
+    conn = get_db_connection()
+    try:
+        daily = get_daily_2025(conn)
+        log(f"📥 Daily rows loaded: {len(daily)}")
+
+        if daily.empty:
+            log("❌ No daily data")
+            return
+
+        monthly = get_monthly_outcomes(conn)
+        log(f"📥 Monthly rows loaded: {len(monthly)}")
+
+        df = add_features(daily)
+        df = map_future_success(df, monthly)
+
+        df = df.sort_values(["date", "symbol"])
+
+        export_to_csv(df, SCANNER_FOLDER, "probabilistic_scanner_2025")
+
+        log("✅ 2025 probabilistic dataset created")
 
     except Exception as e:
-        log(f"❌ Discount Zone scanner failed | {e}")
-        traceback.print_exc()
-        return pd.DataFrame()
+        log(f"❌ Scanner failed | {e}")
 
     finally:
-        if conn:
-            close_db_connection(conn)
+        conn.close()

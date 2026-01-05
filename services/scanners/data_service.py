@@ -45,21 +45,13 @@ def get_base_data(
 
                 d.rsi_3,
                 d.rsi_9,
+                d.rsi_14,
                 d.ema_rsi_9_3,
                 d.wma_rsi_9_21,
 
                 d.sma_20,
                 d.sma_50,
-                d.sma_200,
-                
-                d.macd,
-                d.macd_signal,
-
-                d.atr_14,
-
-                d.bb_upper   AS bb_upper_d,
-                d.bb_middle  AS bb_middle_d,
-                d.bb_lower   AS bb_lower_d
+                d.sma_200
 
             FROM equity_indicators d
             JOIN equity_price_data p
@@ -90,10 +82,8 @@ def get_base_data(
         numeric_cols = [
             'open','high','low','close','adj_close','volume',
             'pct_price_change',
-            'rsi_3','rsi_9','ema_rsi_9_3','wma_rsi_9_21',
-            'sma_20','sma_50','sma_200',
-            'atr_14',
-            'bb_upper_d','bb_middle_d','bb_lower_d'
+            'rsi_3','rsi_9','rsi_14','ema_rsi_9_3','wma_rsi_9_21',
+            'sma_20','sma_50','sma_200'
         ]
 
         for col in numeric_cols:
@@ -107,9 +97,8 @@ def get_base_data(
                 symbol_id,
                 date AS weekly_date,
                 rsi_3 AS rsi_3_weekly,
-                bb_upper  AS bb_upper_w,
-                bb_middle AS bb_middle_w,
-                bb_lower  AS bb_lower_w
+                rsi_9 AS rsi_9_weekly,
+                rsi_14 AS rsi_14_weekly
             FROM equity_indicators
             WHERE timeframe = '1wk'
               AND date BETWEEN '{start_date}' AND '{end_date}'
@@ -135,9 +124,8 @@ def get_base_data(
                 symbol_id,
                 date AS monthly_date,
                 rsi_3 AS rsi_3_monthly,
-                bb_upper  AS bb_upper_m,
-                bb_middle AS bb_middle_m,
-                bb_lower  AS bb_lower_m
+                rsi_9 AS rsi_9_monthly,
+                rsi_14 AS rsi_14_monthly
             FROM equity_indicators
             WHERE timeframe = '1mo'
               AND date BETWEEN '{start_date}' AND '{end_date}'

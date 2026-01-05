@@ -4,106 +4,51 @@ import pandas as pd
 from services.cleanup_service import delete_files_in_folder
 from services.scanners.export_service import export_to_csv
 from services.scanners.backtest_service import backtest_all_scanners
+from services.scanners.data_service import get_base_data
 from db.connection import get_db_connection, close_db_connection
 from config.paths import SCANNER_FOLDER
 from config.logger import log
 
 LOOKBACK_DAYS = 365
 
+
 #################################################################################################
 # APPLY HILEGA-MILEGA SCANNER LOGIC
 #################################################################################################
 def apply_scanner_logic(start_date: str, end_date: str) -> pd.DataFrame:
-    """
-    Fetches weekly price data from the DB and applies weekly momentum scanner rules:
-    - Close > SMA20
-    - Low <= min(4 previous weeks' lows)
-    - SMA20 rising compared to 2 weeks ago
-    - Close >= last week close
-    - Filters also applied on RSI and EMA/WMA ratios
-    """
     conn = None
     try:
         conn = get_db_connection()
-        sql = f"""
-            WITH weekly_price AS (
-                SELECT
-                    ep.symbol_id,
-                    ep.date,
-                    ep.close,
-                    ep.low,
-                    AVG(ep.close) OVER (
-                        PARTITION BY ep.symbol_id 
-                        ORDER BY ep.date 
-                        ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
-                    ) AS sma_20
-                FROM equity_price_data ep
-                WHERE ep.timeframe = '1wk'
-                  AND ep.date BETWEEN '{start_date}' AND '{end_date}'
-            ),
-            weekly_with_lags AS (
-                SELECT
-                    wp.*,
-                    LAG(wp.close, 1) OVER (PARTITION BY wp.symbol_id ORDER BY wp.date) AS close_1w_ago,
-                    LAG(wp.sma_20, 2) OVER (PARTITION BY wp.symbol_id ORDER BY wp.date) AS sma_20_2w_ago,
-                    MIN(wp.low) OVER (PARTITION BY wp.symbol_id ORDER BY wp.date ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) AS min_low_4w
-                FROM weekly_price wp
-            ),
-            weekly_indicators AS (
-                SELECT
-                    wi.symbol_id,
-                    wi.date,
-                    wi.rsi_3,
-                    wi.rsi_9,
-                    wi.rsi_14,
-                    wi.ema_rsi_9_3,
-                    wi.wma_rsi_9_21
-                FROM equity_indicators wi
-                WHERE wi.timeframe = '1wk'
-                  AND wi.date BETWEEN '{start_date}' AND '{end_date}'
-            )
-            SELECT
-                p.symbol_id,
-                s.symbol,
-                s.name,
-                p.date,
-                p.close,
-                p.low,
-                p.sma_20,
-                p.sma_20_2w_ago,
-                p.close_1w_ago,
-                p.min_low_4w,
-                i.rsi_3,
-                i.rsi_9,
-                i.rsi_14,
-                i.ema_rsi_9_3,
-                i.wma_rsi_9_21
-            FROM weekly_with_lags p
-            JOIN weekly_indicators i
-              ON p.symbol_id = i.symbol_id AND p.date = i.date
-            JOIN equity_symbols s
-              ON p.symbol_id = s.symbol_id
-            WHERE p.close > p.sma_20
-              AND p.low <= p.min_low_4w
-              AND p.sma_20_2w_ago < p.sma_20
-              AND p.close >= p.close_1w_ago
-            ORDER BY p.symbol_id, p.date;
-        """
-        df_signals = pd.read_sql(sql, conn)
+        df_signals = get_base_data()
 
-        # Filter as per original logic
+        log(f"🧪 Base data rows: {len(df_signals)}")
+        log(f"🧪 Base data date range: {df_signals['date'].min()} → {df_signals['date'].max()}")
+
         df_filtered = df_signals[
-            (df_signals['close'] >= 100) &
+            (df_signals['adj_close'] >= 100) &
+            (df_signals['rsi_3'] > 65) &
+            (df_signals['rsi_9'] > 55) &
+            (df_signals['rsi_14'] > 55) &
             (df_signals['rsi_3'] / df_signals['rsi_9'] >= 1.15) &
             (df_signals['rsi_9'] / df_signals['ema_rsi_9_3'] >= 1.04) &
             (df_signals['ema_rsi_9_3'] / df_signals['wma_rsi_9_21'] >= 1) &
-            (df_signals['rsi_3'] > 50)
-        ].sort_values(['date','symbol'], ascending=[False, True])
+            (df_signals['ema_rsi_9_3'] > 50) &
+            (df_signals['wma_rsi_9_21'] > 50) &
+            (df_signals['rsi_3_weekly'] > 65) &
+            (df_signals['rsi_9_weekly'] > 55) &
+            (df_signals['rsi_14_weekly'] > 55) &
+            (df_signals['rsi_3_monthly'] > 80) &
+            (df_signals['rsi_9_monthly'] > 70) &
+            (df_signals['rsi_14_monthly'] > 65)
+        ].sort_values(['date', 'symbol'], ascending=[False, True])
 
-        return df_filtered  # Return filtered signals
+        log(f"🧪 After RSI filter rows: {len(df_filtered)}")
+        log(f"🧪 Sample symbols after filter: {df_filtered['symbol'].head(5).tolist()}")
+
+        return df_filtered
 
     except Exception as e:
-        log(f"❌ Error fetching weekly scanner data | {e}")
+        log(f"❌ apply_scanner_logic failed | {e}")
         traceback.print_exc()
         return pd.DataFrame()
 
@@ -111,80 +56,151 @@ def apply_scanner_logic(start_date: str, end_date: str) -> pd.DataFrame:
         if conn:
             close_db_connection(conn)
 
+
 #################################################################################################
-# Runs the weekly momentum scanner for a given date range, exports results to CSV, 
-# and returns the signals as a DataFrame.
+# RUN SCANNER
 #################################################################################################
 def run_scanner(start_date: str, end_date: str, file_name: str = "HM") -> pd.DataFrame:
+    conn = None
     try:
-        if not start_date or not end_date:
-            log("❌ start_date or end_date not provided")
-            return pd.DataFrame()
+        log(f"\n🔍 Running scanner from {start_date} → {end_date}")
 
-        log(f"🔍 Running weekly scanner from {start_date} to {end_date}")
+        # ---------------- BASE FILTER ----------------
         df_signals = apply_scanner_logic(start_date, end_date)
 
         if df_signals.empty:
-            log(f"⚠ No weekly momentum signals found for {start_date} to {end_date}")
+            log("❌ STOP: No signals after base RSI filter")
             return pd.DataFrame()
 
-        path = export_to_csv(df_signals, SCANNER_FOLDER, file_name)
+        log(f"🧪 Symbols entering crossover stage: {df_signals['symbol'].nunique()}")
+
+        conn = get_db_connection()
+
+        # ---------------- MONTHLY CLOSE CROSSOVER QUERY ----------------
+        sql = """
+            SELECT
+                d.symbol_id,
+                d.date,
+                d.close AS close_today,
+                LAG(d.close, 1) OVER (
+                    PARTITION BY d.symbol_id ORDER BY d.date
+                ) AS close_yesterday,
+                (
+                    SELECT m.close
+                    FROM equity_price_data m
+                    WHERE m.symbol_id = d.symbol_id
+                    AND m.timeframe = '1mo'
+                    AND m.date < d.date
+                    ORDER BY m.date DESC
+                    LIMIT 1
+                ) AS prev_month_close
+            FROM equity_price_data d
+            WHERE d.timeframe = '1d'
+            AND d.date BETWEEN ? AND ?
+        """
+
+        df_cross = pd.read_sql(
+            sql,
+            conn,
+            params=(start_date, end_date),
+            parse_dates=["date"]
+        )
+
+        log(f"🧪 Daily/monthly crossover rows fetched: {len(df_cross)}")
+
+        if df_cross.empty:
+            log("❌ STOP: No rows returned from crossover SQL")
+            return pd.DataFrame()
+
+        # ---------------- MERGE CHECK ----------------
+        df_merged = df_signals.merge(
+            df_cross,
+            on=["symbol_id", "date"],
+            how="inner"
+        )
+
+        log(f"🧪 Rows after merge: {len(df_merged)}")
+
+        if df_merged.empty:
+            log("❌ STOP: No rows matched on symbol_id + date")
+            log("🔍 DEBUG sample df_signals dates:")
+            log(df_signals[['symbol_id', 'date']].head(5).to_string())
+            log("🔍 DEBUG sample df_cross dates:")
+            log(df_cross[['symbol_id', 'date']].head(5).to_string())
+            return pd.DataFrame()
+
+        # ---------------- CROSSOVER LOGIC ----------------
+        df_final = df_merged[
+            (df_merged["close_yesterday"] <= df_merged["prev_month_close"]) &
+            (df_merged["close_today"] > df_merged["prev_month_close"])
+        ]
+
+        log(f"🧪 Rows after crossover condition: {len(df_final)}")
+
+        if df_final.empty:
+            log("❌ STOP: No TRUE crossovers detected")
+            log("🔍 DEBUG crossover sample:")
+            debug_cols = [
+                "symbol", "date",
+                "close_yesterday",
+                "prev_month_close",
+                "close_today"
+            ]
+            log(df_merged[debug_cols].head(10).to_string())
+            return pd.DataFrame()
+
+        # ---------------- CLEANUP ----------------
+        df_final.drop(
+            columns=["close_today", "close_yesterday", "prev_month_close"],
+            inplace=True
+        )
+
+        path = export_to_csv(df_final, SCANNER_FOLDER, file_name)
         log(f"✅ Scanner results saved to: {path}")
 
-        return df_signals
+        return df_final
 
     except Exception as e:
         log(f"❌ run_scanner failed | {e}")
         traceback.print_exc()
         return pd.DataFrame()
 
+    finally:
+        if conn:
+            close_db_connection(conn)
+
+
 #################################################################################################
-# Runs the weekly momentum scanner across multiple years, combining yearly results 
-# into a single DataFrame and optionally performing a backtest.
+# MULTI-YEAR DRIVER
 #################################################################################################
 def scanner_play_multi_years(start_year: str, lookback_years: int):
     try:
-        # ---------------- CLEAN SCANNER FOLDER ----------------
-        print(f"===== DELETE FILES FROM SCANNER FOLDER STARTED =====")
         delete_files_in_folder(SCANNER_FOLDER)
-        print(f"===== DELETE FILES FROM SCANNER FOLDER FINISHED =====")
 
-        # ---------------- PARSE START YEAR ----------------
-        try:
-            start_year_int = int(start_year)
-        except ValueError:
-            print(f"❌ Invalid start year '{start_year}', defaulting to 2025")
-            start_year_int = 2025
-
+        start_year_int = int(start_year)
         all_years_results = []
 
-        # ---------------- LOOP THROUGH YEARS ----------------
         for i in range(lookback_years):
             year = start_year_int - i
-            start_date = datetime(year, 1, 1).strftime("%Y-%m-%d")   # First day of the year
-            end_date   = datetime(year, 12, 31).strftime("%Y-%m-%d") # Last day of the year
+            start_date = f"{year}-01-01"
+            end_date   = f"{year}-12-31"
 
-            print(f"\n🔹 Running scanner for year {year} ({start_date} to {end_date})")
-
-            # Scanner call — we only pass start_date, scanner will handle lookback internally
-            df_year = run_scanner(start_date=start_date,end_date=end_date, file_name=str(year))
-            print(f"✅ Completed for {year} | Rows found: {len(df_year)}")
+            print(f"\n🔹 YEAR {year}")
+            df_year = run_scanner(start_date, end_date, file_name=str(year))
+            print(f"➡ Rows found: {len(df_year)}")
 
             if not df_year.empty:
-                df_year['year'] = year
+                df_year["year"] = year
                 all_years_results.append(df_year)
 
-        # ---------------- COMBINE RESULTS ----------------
         if all_years_results:
             final_df = pd.concat(all_years_results, ignore_index=True)
-            print(f"✅ Multi-year scanner completed | Total rows: {len(final_df)}")
+            print(f"✅ TOTAL rows across years: {len(final_df)}")
         else:
             final_df = pd.DataFrame()
-            print("⚠ No results across all years")
+            print("⚠ No results across years")
 
-        # ---------------- OPTIONAL BACKTEST ----------------
         df_backtest = backtest_all_scanners()
-        print("✅ Backtest completed")
         print(df_backtest)
 
         return final_df
