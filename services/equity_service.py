@@ -7,6 +7,7 @@ from services.cleanup_service import delete_invalid_timeframe_rows, delete_files
 from config.paths import YAHOO_EQUITY_DIR
 from config.logger import log
 from services.yahoo_service import download_equity_yahoo_data_all_timeframes
+from services.weekly_monthly_service import generate_weekly_monthly_from_daily
 from config.paths import FREQUENCIES
 #################################################################################################
 # Imports historical Yahoo equity price CSVs for all symbols and timeframes into the database 
@@ -29,6 +30,7 @@ def import_equity_csv_to_db():
                 adj_close=excluded.adj_close,
                 volume=excluded.volume
         """
+
         for timeframe in FREQUENCIES:
 
             timeframe_path = os.path.join(YAHOO_EQUITY_DIR, timeframe)
@@ -126,16 +128,17 @@ def insert_equity_price_data(symbol):
         import_equity_csv_to_db()
         print(f"===== CSV TO DATABASE IMPORT FINISHED =====")
         log(f"===== CSV TO DATABASE IMPORT FINISHED =====")
-        
+                
         log(f"===== DELETE INVALID ROWS FOR WEEK & MONTH STARTED =====")
         print(f"===== DELETE INVALID ROWS FOR WEEK & MONTH STARTED =====")
-        delete_invalid_timeframe_rows("1wk")
-        delete_invalid_timeframe_rows("1mo")
+        delete_invalid_timeframe_rows("1wk", data_type="price")
+        delete_invalid_timeframe_rows("1mo", data_type="price")
         print(f"===== DELETE INVALID ROWS FOR WEEK & MONTH FINISHED =====")
         log(f"===== DELETE INVALID ROWS FOR WEEK & MONTH FINISHED =====")
         
         log(f"===== DELETE FILES FROM FOLDERS STARTED =====")
         print(f"===== DELETE FILES FROM FOLDERS STARTED =====")
+
         for timeframe in FREQUENCIES:
             folder_path = os.path.join(YAHOO_EQUITY_DIR, timeframe)
             delete_files_in_folder(folder_path)

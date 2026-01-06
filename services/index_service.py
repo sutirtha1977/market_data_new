@@ -126,8 +126,8 @@ def insert_index_price_data():
         
         log(f"===== DELETE INVALID ROWS FOR WEEK & MONTH STARTED =====")
         print(f"===== DELETE INVALID ROWS FOR WEEK & MONTH STARTED =====")
-        delete_invalid_timeframe_rows("1wk", is_index=True)
-        delete_invalid_timeframe_rows("1mo", is_index=True)
+        delete_invalid_timeframe_rows("1wk", data_type="price", is_index=True)
+        delete_invalid_timeframe_rows("1mo", data_type="price", is_index=True)
         print(f"===== DELETE INVALID ROWS FOR WEEK & MONTH FINISHED =====")
         log(f"===== DELETE INVALID ROWS FOR WEEK & MONTH FINISHED =====")
         

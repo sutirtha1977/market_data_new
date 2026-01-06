@@ -38,8 +38,8 @@ def incr_yahoo_bhavcopy_download(symbol):
 
         log(f"===== DELETE INVALID ROWS FOR WEEK & MONTH STARTED =====")
         print(f"===== DELETE INVALID ROWS FOR WEEK & MONTH STARTED =====")
-        delete_invalid_timeframe_rows("1wk")
-        delete_invalid_timeframe_rows("1mo")
+        delete_invalid_timeframe_rows("1wk", data_type="price")
+        delete_invalid_timeframe_rows("1mo", data_type="price")
         print(f"===== DELETE INVALID ROWS FOR WEEK & MONTH FINISHED =====")
         log(f"===== DELETE INVALID ROWS FOR WEEK & MONTH FINISHED =====")
         
@@ -61,8 +61,8 @@ def incr_yahoo_bhavcopy_download(symbol):
 
             log(f"===== DELETE INVALID ROWS FOR WEEK & MONTH STARTED =====")
             print(f"===== DELETE INVALID ROWS FOR WEEK & MONTH STARTED =====")
-            delete_invalid_timeframe_rows("1wk", is_index=True)
-            delete_invalid_timeframe_rows("1mo", is_index=True)
+            delete_invalid_timeframe_rows("1wk", data_type="price", is_index=True)
+            delete_invalid_timeframe_rows("1mo", data_type="price", is_index=True)
             print(f"===== DELETE INVALID ROWS FOR WEEK & MONTH FINISHED =====")
             log(f"===== DELETE INVALID ROWS FOR WEEK & MONTH FINISHED =====")
         # -------------------------

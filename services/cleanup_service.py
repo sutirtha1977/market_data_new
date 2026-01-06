@@ -5,15 +5,113 @@ import shutil
 import traceback
 import os
 
+# #################################################################################################
+# # Deletes invalid equity/index price data records for a given timeframe:
+# # - '1wk' → keeps only Monday dates
+# # - '1mo' → keeps only 1st-of-month dates
+# #################################################################################################
+# def delete_invalid_timeframe_rows(timeframe: str, is_index: bool = False):
+#     table = "index_price_data" if is_index else "equity_price_data"
+
+#     # Timeframe-specific rules
+#     rules = {
+#         "1wk": ("strftime('%w', date) <> '1'", "non-Monday weekly"),
+#         "1mo": ("strftime('%d', date) <> '01'", "non-1st-day monthly"),
+#     }
+
+#     if timeframe not in rules:
+#         raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+#     condition, label = rules[timeframe]
+
+#     try:
+#         conn = get_db_connection()
+#         cur = conn.cursor()
+
+#         log(f"Deleting {label} rows from '{table}'...")
+
+#         cur.execute(f"""
+#             DELETE FROM {table}
+#             WHERE timeframe = ?
+#               AND {condition}
+#         """, (timeframe,))
+
+#         conn.commit()
+
+#         log(f"🗑️ Deleted {cur.rowcount} {label} rows from '{table}'")
+
+#     except Exception as e:
+#         log(f"❌ Failed to delete {label} rows from '{table}': {e}")
+#         traceback.print_exc()
+
+#     finally:
+#         close_db_connection(conn)
+# #################################################################################################
+# # Deletes invalid equity/index indicator records for a given timeframe:
+# # - '1wk' → keeps only Monday dates
+# # - '1mo' → keeps only 1st-of-month dates
+# #################################################################################################
+# def delete_invalid_indicator_rows(timeframe: str, is_index: bool = False):
+#     table = "index_indicators" if is_index else "equity_indicators"
+
+#     # Timeframe-specific rules (SQLite strftime)
+#     rules = {
+#         "1wk": ("strftime('%w', date) <> '1'", "non-Monday weekly"),
+#         "1mo": ("strftime('%d', date) <> '01'", "non-1st-day monthly"),
+#     }
+
+#     if timeframe not in rules:
+#         raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+#     condition, label = rules[timeframe]
+
+#     try:
+#         conn = get_db_connection()
+#         cur = conn.cursor()
+
+#         log(f"Deleting {label} rows from '{table}'...")
+
+#         cur.execute(f"""
+#             DELETE FROM {table}
+#             WHERE timeframe = ?
+#               AND {condition}
+#         """, (timeframe,))
+
+#         conn.commit()
+
+#         log(f"🗑️ Deleted {cur.rowcount} {label} rows from '{table}'")
+
+#     except Exception as e:
+#         log(f"❌ Failed to delete {label} rows from '{table}': {e}")
+#         traceback.print_exc()
+
+#     finally:
+#         close_db_connection(conn)
 #################################################################################################
-# Deletes invalid price records for a given timeframe:
+# Deletes invalid equity/index PRICE or INDICATOR records for a given timeframe:
 # - '1wk' → keeps only Monday dates
 # - '1mo' → keeps only 1st-of-month dates
+#
+# Parameters:
+#   timeframe : '1wk' | '1mo'
+#   data_type : 'price' | 'indicator'
+#   is_index  : False → equity, True → index
 #################################################################################################
-def delete_invalid_timeframe_rows(timeframe: str, is_index: bool = False):
-    table = "index_price_data" if is_index else "equity_price_data"
+def delete_invalid_timeframe_rows(
+    timeframe: str,
+    data_type: str = "price",
+    is_index: bool = False
+):
+    # ---- Resolve table name ----
+    if data_type not in {"price", "indicator"}:
+        raise ValueError("data_type must be 'price' or 'indicator'")
 
-    # Timeframe-specific rules
+    if data_type == "price":
+        table = "index_price_data" if is_index else "equity_price_data"
+    else:
+        table = "index_indicators" if is_index else "equity_indicators"
+
+    # ---- Timeframe rules (SQLite) ----
     rules = {
         "1wk": ("strftime('%w', date) <> '1'", "non-Monday weekly"),
         "1mo": ("strftime('%d', date) <> '01'", "non-1st-day monthly"),
