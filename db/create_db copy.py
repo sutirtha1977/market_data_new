@@ -3,12 +3,12 @@ from config.paths import DB_FILE, FREQUENCIES
 from config.logger import log
 from db.connection import get_db_connection, close_db_connection
 
-
-def create_stock_database():
+def create_stock_database(drop_tables: bool = False):
     """
-    Drops ALL tables and recreates the complete stock database schema from scratch.
+    Creates the stock database tables.
+    - Core tables (symbols, timeframes, equity/index price) are preserved.
+    - If drop_tables=True, other tables (indicators, 52-week stats) are dropped and recreated.
     """
-
     # Ensure DB folder exists
     db_folder = os.path.dirname(DB_FILE)
     if db_folder and not os.path.exists(db_folder):
@@ -19,30 +19,9 @@ def create_stock_database():
     cur = conn.cursor()
 
     try:
-        # -------------------------------------------------
-        # DROP ALL TABLES (dependency order)
-        # -------------------------------------------------
-        tables_to_drop = [
-            "equity_price_data",
-            "index_price_data",
-            "equity_indicators",
-            "index_indicators",
-            "equity_52week_stats",
-            "index_52week_stats",
-            "equity_symbols",
-            "index_symbols",
-            "timeframes"
-        ]
-
-        for table in tables_to_drop:
-            cur.execute(f"DROP TABLE IF EXISTS {table};")
-            log(f"🗑 Dropped table: {table}")
-
-        # -------------------------------------------------
-        # CREATE TABLES
-        # -------------------------------------------------
+        # -------------------- CORE TABLES --------------------
         cur.execute("""
-        CREATE TABLE equity_symbols (
+        CREATE TABLE IF NOT EXISTS equity_symbols (
             symbol_id INTEGER PRIMARY KEY,
             symbol TEXT NOT NULL UNIQUE,
             series TEXT,
@@ -55,7 +34,7 @@ def create_stock_database():
         """)
 
         cur.execute("""
-        CREATE TABLE index_symbols (
+        CREATE TABLE IF NOT EXISTS index_symbols (
             index_id INTEGER PRIMARY KEY,
             index_code TEXT NOT NULL UNIQUE,
             index_name TEXT NOT NULL,
@@ -67,19 +46,18 @@ def create_stock_database():
         """)
 
         cur.execute("""
-        CREATE TABLE timeframes (
+        CREATE TABLE IF NOT EXISTS timeframes (
             timeframe TEXT PRIMARY KEY,
             description TEXT
         );
         """)
-
         cur.executemany("""
-            INSERT INTO timeframes (timeframe, description)
+            INSERT OR IGNORE INTO timeframes (timeframe, description)
             VALUES (?, ?)
         """, [(tf, tf.upper()) for tf in FREQUENCIES])
 
         cur.execute("""
-        CREATE TABLE equity_price_data (
+        CREATE TABLE IF NOT EXISTS equity_price_data (
             symbol_id INTEGER NOT NULL,
             timeframe TEXT NOT NULL,
             date DATE NOT NULL,
@@ -98,7 +76,7 @@ def create_stock_database():
         """)
 
         cur.execute("""
-        CREATE TABLE index_price_data (
+        CREATE TABLE IF NOT EXISTS index_price_data (
             index_id INTEGER NOT NULL,
             timeframe TEXT NOT NULL,
             date DATE NOT NULL,
@@ -113,8 +91,18 @@ def create_stock_database():
         );
         """)
 
+        # -------------------- DROP AND RECREATE NON-CORE TABLES --------------------
+        if drop_tables:
+            for tbl in [
+                "equity_indicators", "index_indicators",
+                "equity_52week_stats", "index_52week_stats"
+            ]:
+                cur.execute(f"DROP TABLE IF EXISTS {tbl};")
+                log(f"🗑 Dropped table: {tbl}")
+
+        # -------------------- CREATE NON-CORE TABLES --------------------
         cur.execute("""
-        CREATE TABLE equity_indicators (
+        CREATE TABLE IF NOT EXISTS equity_indicators (
             symbol_id INTEGER NOT NULL,
             timeframe TEXT NOT NULL,
             date DATE NOT NULL,
@@ -133,7 +121,7 @@ def create_stock_database():
         """)
 
         cur.execute("""
-        CREATE TABLE index_indicators (
+        CREATE TABLE IF NOT EXISTS index_indicators (
             index_id INTEGER NOT NULL,
             timeframe TEXT NOT NULL,
             date DATE NOT NULL,
@@ -151,46 +139,38 @@ def create_stock_database():
         """)
 
         cur.execute("""
-        CREATE TABLE equity_52week_stats (
+        CREATE TABLE IF NOT EXISTS equity_52week_stats (
             symbol_id INTEGER PRIMARY KEY,
-            week52_high REAL,
-            week52_low REAL,
-            as_of_date DATE,
+            week52_high REAL, week52_low REAL, as_of_date DATE,
             FOREIGN KEY (symbol_id) REFERENCES equity_symbols(symbol_id)
         );
         """)
 
         cur.execute("""
-        CREATE TABLE index_52week_stats (
+        CREATE TABLE IF NOT EXISTS index_52week_stats (
             index_id INTEGER PRIMARY KEY,
-            week52_high REAL,
-            week52_low REAL,
-            as_of_date DATE,
+            week52_high REAL, week52_low REAL, as_of_date DATE,
             FOREIGN KEY (index_id) REFERENCES index_symbols(index_id)
         );
         """)
 
-        # -------------------------------------------------
-        # INDEXES
-        # -------------------------------------------------
-        indexes = [
-            "CREATE INDEX idx_eq_price ON equity_price_data(symbol_id, timeframe, date);",
-            "CREATE INDEX idx_idx_price ON index_price_data(index_id, timeframe, date);",
-            "CREATE INDEX idx_eq_ind ON equity_indicators(symbol_id, timeframe, date);",
-            "CREATE INDEX idx_idx_ind ON index_indicators(index_id, timeframe, date);",
-            "CREATE INDEX idx_eq_52w ON equity_52week_stats(symbol_id);",
-            "CREATE INDEX idx_idx_52w ON index_52week_stats(index_id);"
-        ]
-
-        for idx in indexes:
-            cur.execute(idx)
+        # -------------------- INDEXES --------------------
+        for stmt in [
+            "CREATE INDEX IF NOT EXISTS idx_eq_price ON equity_price_data(symbol_id, timeframe, date);",
+            "CREATE INDEX IF NOT EXISTS idx_idx_price ON index_price_data(index_id, timeframe, date);",
+            "CREATE INDEX IF NOT EXISTS idx_eq_ind ON equity_indicators(symbol_id, timeframe, date);",
+            "CREATE INDEX IF NOT EXISTS idx_idx_ind ON index_indicators(index_id, timeframe, date);",
+            "CREATE INDEX IF NOT EXISTS idx_eq_52w ON equity_52week_stats(symbol_id);",
+            "CREATE INDEX IF NOT EXISTS idx_idx_52w ON index_52week_stats(index_id);"
+        ]:
+            cur.execute(stmt)
 
         conn.commit()
-        log(f"✅ Database recreated successfully: {DB_FILE}")
+        log(f"✅ Database tables ensured successfully: {DB_FILE}")
 
     except Exception as e:
         conn.rollback()
-        log(f"❌ Error recreating database: {e}")
+        log(f"❌ Error creating database: {e}")
         raise
 
     finally:
