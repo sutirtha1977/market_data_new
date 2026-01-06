@@ -6,7 +6,7 @@ Supports equity and index indicator tables with UPSERT logic.
 SQL_INSERT = {
     "equity": """
         INSERT INTO {indicator_table} (
-            {col_id}, timeframe, date, is_final,
+            {col_id}, timeframe, date,
             sma_20, sma_50, sma_200,
             rsi_3, rsi_9, rsi_14,
             bb_upper, bb_middle, bb_lower,
@@ -14,10 +14,9 @@ SQL_INSERT = {
             ema_rsi_9_3, wma_rsi_9_21, pct_price_change,
             macd, macd_signal
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT({col_id}, timeframe, date)
         DO UPDATE SET
-            is_final        = excluded.is_final,
             sma_20          = excluded.sma_20,
             sma_50          = excluded.sma_50,
             sma_200         = excluded.sma_200,
