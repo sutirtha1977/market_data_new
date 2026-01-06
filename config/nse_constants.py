@@ -22,6 +22,7 @@ MAIN_MENU_ITEMS = [
     ("11", "SCANNER: Playground", "Run As Required", "yellow"),
     ("12", "SCANNER: Test", "Run As Required", "yellow"),
     ("13", "Backtest Scanners", "Run As Required", "yellow"),
+    # ("14", "Data Analysis", "Run As Required", "yellow"),
     ("0", "Exit", "", "white"),
 ]
 # ---------------- NSE Indices ----------------

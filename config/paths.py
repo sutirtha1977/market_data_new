@@ -15,11 +15,13 @@ YAHOO_EQUITY_DIR = YAHOO_DIR / "equity"
 YAHOO_INDEX_DIR = YAHOO_DIR / "index"
 EXPORT_DIR = DATA_DIR / "exports"
 BHAVCOPY_DIR_HIST = DATA_DIR / "bhavcopy" / "equity_bhav_29Dec2025"
+ANALYSIS_FOLDER = DATA_DIR / "analysis"
 
 SCANNER_FOLDER = EXPORT_DIR  # for scanner exports
 
 # ---------------- Database ----------------
 DB_FILE = BASE_DIR / "db" / "markets.db"
+DB_EXPORTS = BASE_DIR / "db" / "database_csv"
 
 # ---------------- CSV ----------------
 CSV_FILE = BASE_DIR / "data.csv"
