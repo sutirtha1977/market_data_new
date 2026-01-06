@@ -26,6 +26,7 @@ def download_equity_yahoo_data_all_timeframes(symbol):
         if symbols_df.empty:
             log("NO SYMBOLS FOUND")
             return
+
         for timeframe in FREQUENCIES:
             # --- create folder for timeframe ---
             timeframe_path = os.path.join(YAHOO_EQUITY_DIR, timeframe)
