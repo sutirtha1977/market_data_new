@@ -4,29 +4,18 @@ from rich.table import Table
 from rich.prompt import Prompt
 from config.logger import log, clear_log
 from config.nse_constants import MAIN_MENU_ITEMS, FREQ_COLORS
-from services.symbol_service import (
-    refresh_equity,
-    refresh_indices
-)
-from services.equity_service import (
-    insert_equity_price_data
-)
-from services.index_service import (
-    insert_index_price_data
-)
-from services.indicator_service import (
-    refresh_52week_stats, refresh_indicators
-)
-from services.bhavcopy_loader import (
-    update_hist_delv_pct_from_bhavcopy,
-    update_latest_delv_pct_from_bhavcopy
-)
+from services.symbol_service import refresh_equity, refresh_indices
+from services.equity_service import insert_equity_price_data
+from services.index_service import insert_index_price_data
+from services.indicator_service import indicators_refresh
+from services.weekly_monthly_service import refresh_week52_high_low_stats, generate_weekly_monthly_from_daily
+from services.bhavcopy_loader import update_hist_delv_pct_from_bhavcopy,update_latest_delv_pct_from_bhavcopy
 from services.incremental_service import incr_yahoo_bhavcopy_download
 from services.scanners.backtest_service import backtest_all_scanners
 from services.scanners.scanner_HM import run_scanner_hilega_milega
 from services.scanners.scanner_weekly import run_scanner_weekly
 from services.scanners.scanner_play import scanner_play_multi_years
-from services.scanners.scanner_test import run_discount_zone_scanner
+from services.scanners.scanner_test import run_probabilistic_scanner
 from db.create_db import create_stock_database
 
 console = Console()
@@ -76,7 +65,8 @@ def print_df_rich(df, max_rows: int = 20) -> None:
 def action_create_db() -> None:
     clear_log()
     console.print("[bold green]Database Creation Start....[/bold green]")
-    create_stock_database(drop_tables=True)
+    # create_stock_database(drop_tables=True)
+    create_stock_database()
     console.print("[bold green]Database Creation Finish....[/bold green]")
     
 def action_update_equity_index_symbols() -> None:
@@ -98,7 +88,7 @@ def action_update_equity_index_prices() -> None:
         console.print("[bold green]Index Price Data Update Start....[/bold green]")
         insert_index_price_data()
         console.print("[bold green]Index Price Data Update Finish....[/bold green]")
-
+    
 def action_delv_pct_hist() -> None:
     clear_log()
     log("SYMBOL | TIMEFRAME | STATUS\n" + "-" * 40 + "\n")
@@ -110,13 +100,15 @@ def action_delv_pct_latest() -> None:
     update_latest_delv_pct_from_bhavcopy()
 
 def action_refresh_52week_stats() -> None:
+    clear_log()
     console.print("[bold green]Update 52 weeks statistics Start....[/bold green]")
-    refresh_52week_stats()
+    refresh_week52_high_low_stats()
     console.print("[bold green]Update 52 weeks statistics Finish....[/bold green]")
 
 def action_refresh_indicators() -> None:
+    clear_log()
     console.print("[bold green]Refresh Indicators Start....[/bold green]")
-    refresh_indicators()
+    indicators_refresh()
     console.print("[bold green]Refresh Indicators Finish....[/bold green]")
 
 def action_incr_price_data_update() -> None:
@@ -154,14 +146,14 @@ def action_scanner(scanner_type: str) -> None:
         print(f"Start Year: {user_year}, Lookback: {lookback_count}")
         scanner_play_multi_years(user_year,lookback_count)
     elif scanner_type == "TEST":
-        run_discount_zone_scanner()
+        run_probabilistic_scanner()
 
 def action_backtest() -> None:
     clear_log()
     log("SYMBOL | TIMEFRAME | STATUS\n" + "-" * 40 + "\n")
     df = backtest_all_scanners()
     print(df)
-
+       
 #################################################################################################
 # MAIN LOOP
 #################################################################################################
@@ -190,7 +182,6 @@ def data_manager_user_input() -> None:
                 "12": lambda: action_scanner("TEST"),
                 "13": action_backtest,
             }
-
             func = actions.get(choice)
             if func:
                 func()
